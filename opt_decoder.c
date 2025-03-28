@@ -532,8 +532,11 @@ static char opt_decoder_step(
 static void opt_decoder_run(
     struct opt_decoder * p_this)
 {
-    while (opt_decoder_step(p_this))
+    ptrdiff_t i_max_count;
+    i_max_count = p_this->o_iterator.end - p_this->o_iterator.cur;
+    while (opt_decoder_step(p_this) && (i_max_count > 0))
     {
+        i_max_count --;
     }
 }
 

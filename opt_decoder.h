@@ -8,10 +8,9 @@
 enum opt_type
 {
     opt_type_boolean = 1,
-    opt_type_signed_long = 2,
-    opt_type_unsigned_long = 3,
-    opt_type_string = 4,
-    opt_type_object = 5
+    opt_type_number = 2,
+    opt_type_string = 3,
+    opt_type_object = 4
 };
 
 /*

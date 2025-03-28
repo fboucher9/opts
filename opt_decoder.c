@@ -97,11 +97,13 @@ static char opt_iterator_next(
     return b_result;
 }
 
+
 struct opt_node
 {
     struct opt_descriptor const * p_descriptor_array;
     void * p_object;
 };
+
 
 struct opt_stack
 {
@@ -109,7 +111,8 @@ struct opt_stack
     unsigned int i_depth;
 };
 
-static void opt_stack_push(
+
+static char opt_stack_push(
     struct opt_stack * p_this,
     struct opt_descriptor const * p_descriptor_array,
     void * p_object)
@@ -122,6 +125,7 @@ static void opt_stack_push(
         p_this->a_nodes[p_this->i_depth].p_object = p_object;
         p_this->i_depth ++;
     }
+    return 1;
 }
 
 
@@ -231,33 +235,12 @@ static char compare_argument_and_descriptor(
     struct opt_argument const * p_argument,
     struct opt_descriptor const * p_descriptor)
 {
-    char b_result;
-    char const * p_body;
-    size_t i_body_length;
-    size_t i_long_length;
-    size_t i_short_length;
-
-    p_body = p_argument->p_body;
-    i_body_length = p_argument->i_body_length;
-    i_long_length = strlen(p_descriptor->p_long_name);
-    i_short_length = strlen(p_descriptor->p_short_name);
-
-    if ((i_body_length == i_long_length)
-        && (0 == memcmp(p_body, p_descriptor->p_long_name, i_body_length)))
-    {
-        b_result = 1;
-    }
-    else if ((i_body_length == i_short_length)
-        && (0 == memcmp(p_body, p_descriptor->p_short_name, i_body_length)))
-    {
-        b_result = 1;
-    }
-    else
-    {
-        b_result = 0;
-    }
-
-    return b_result;
+    return ((p_argument->i_body_length == strlen(p_descriptor->p_long_name))
+        && (0 == memcmp(p_argument->p_body, p_descriptor->p_long_name,
+                p_argument->i_body_length)))
+        || ((p_argument->i_body_length == strlen(p_descriptor->p_short_name))
+        && (0 == memcmp(p_argument->p_body, p_descriptor->p_short_name,
+                p_argument->i_body_length)));
 }
 
 
@@ -309,8 +292,7 @@ union opt_decoder_field
     void * p_object;
     size_t i_address;
     char * r_flag;
-    signed long int * r_signed_long;
-    unsigned long int * r_unsigned_long;
+    double * r_number;
     char const * * r_string;
 };
 
@@ -387,7 +369,7 @@ static char const * opt_decoder_lookup_enumeration(
 }
 
 
-static char opt_decoder_process_signed_long(
+static char opt_decoder_process_number(
     struct opt_decoder * p_this,
     struct opt_descriptor const * p_descriptor,
     char const * p_value)
@@ -397,15 +379,18 @@ static char opt_decoder_process_signed_long(
 
     if (opt_decoder_get_field(p_this, p_descriptor, &o_field))
     {
-        signed long int i_signed;
-        i_signed = 0;
+        double f_number;
+        f_number = 0.0;
         if (p_value)
         {
             p_value = opt_decoder_lookup_enumeration(
                 p_descriptor->p_descriptor_array, p_value);
-            sscanf(p_value, "%ld", &i_signed);
+            if (p_value)
+            {
+                sscanf(p_value, "%lf", &f_number);
+            }
         }
-        *o_field.r_signed_long = i_signed;
+        *o_field.r_number = f_number;
         b_result = 1;
     }
     else
@@ -413,34 +398,6 @@ static char opt_decoder_process_signed_long(
         b_result = 0;
     }
 
-    return b_result;
-}
-
-
-static char opt_decoder_process_unsigned_long(
-    struct opt_decoder * p_this,
-    struct opt_descriptor const * p_descriptor,
-    char const * p_value)
-{
-    char b_result;
-    union opt_decoder_field o_field;
-    if (opt_decoder_get_field(p_this, p_descriptor, &o_field))
-    {
-        unsigned long int i_unsigned;
-        i_unsigned = 0;
-        if (p_value)
-        {
-            p_value = opt_decoder_lookup_enumeration(
-                p_descriptor->p_descriptor_array, p_value);
-            sscanf(p_value, "%lu", &i_unsigned);
-        }
-        *o_field.r_unsigned_long = i_unsigned;
-        b_result = 1;
-    }
-    else
-    {
-        b_result = 0;
-    }
     return b_result;
 }
 
@@ -471,22 +428,10 @@ static char opt_decoder_process_object(
     struct opt_decoder * p_this,
     struct opt_descriptor const * p_descriptor)
 {
-    char b_result;
     union opt_decoder_field o_field;
-
-    if (opt_decoder_get_field(p_this, p_descriptor, &o_field))
-    {
-        /* push onto stack */
-        opt_stack_push(&p_this->o_stack,
-            p_descriptor->p_descriptor_array,
+    return opt_decoder_get_field(p_this, p_descriptor, &o_field)
+        && opt_stack_push(&p_this->o_stack, p_descriptor->p_descriptor_array,
             o_field.p_object);
-        b_result = 1;
-    }
-    else
-    {
-        b_result = 0;
-    }
-    return b_result;
 }
 
 
@@ -502,15 +447,10 @@ static char opt_decoder_process_value(
         return opt_decoder_process_flag_value(p_this, p_argument,
             p_descriptor);
     }
-    else if (opt_type_signed_long == p_descriptor->e_type)
+    else if (opt_type_number == p_descriptor->e_type)
     {
         return opt_decoder_get_value(p_this, p_argument, &p_value) &&
-            opt_decoder_process_signed_long(p_this, p_descriptor, p_value);
-    }
-    else if (opt_type_unsigned_long == p_descriptor->e_type)
-    {
-        return opt_decoder_get_value(p_this, p_argument, &p_value) &&
-            opt_decoder_process_unsigned_long(p_this, p_descriptor, p_value);
+            opt_decoder_process_number(p_this, p_descriptor, p_value);
     }
     else if (opt_type_string == p_descriptor->e_type)
     {
@@ -562,24 +502,15 @@ static char opt_decoder_process_argument(
     struct opt_argument const * p_argument)
 {
     char b_result;
-    char b_retry;
+    struct opt_descriptor const * p_descriptor;
 
     b_result = 1;
-    b_retry = 1;
-    while (b_result && b_retry)
-    {
-        struct opt_descriptor const * p_descriptor;
-
-        /* compare this name with list of options */
-        b_retry = !opt_decoder_lookup_descriptor(p_this, p_argument,
+    while (b_result && !(opt_decoder_lookup_descriptor(p_this, p_argument,
             &p_descriptor)
-            || !opt_decoder_process_value(p_this, p_descriptor, p_argument);
-
-        if (b_retry)
-        {
-            /* retry using parent descriptors */
-            b_result = opt_stack_pop(&p_this->o_stack);
-        }
+            && opt_decoder_process_value(p_this, p_descriptor, p_argument)))
+    {
+        /* retry using parent descriptors */
+        b_result = opt_stack_pop(&p_this->o_stack);
     }
 
     return b_result;
@@ -598,13 +529,12 @@ static char opt_decoder_step(
 }
 
 
-static char * * opt_decoder_run(
+static void opt_decoder_run(
     struct opt_decoder * p_this)
 {
     while (opt_decoder_step(p_this))
     {
     }
-    return p_this->o_iterator.checkpoint;
 }
 
 
@@ -635,7 +565,8 @@ char * * opt_decoder_scan(
     struct opt_decoder o_decoder;
     opt_decoder_init(&o_decoder, arg_cur, arg_end);
     opt_stack_push(&o_decoder.o_stack, p_descriptor_array, p_object);
-    p_result = opt_decoder_run(&o_decoder);
+    opt_decoder_run(&o_decoder);
+    p_result = o_decoder.o_iterator.checkpoint;
     opt_decoder_cleanup(&o_decoder);
     return p_result;
 }
